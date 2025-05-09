@@ -1,52 +1,64 @@
 class Piece:
     def __init__(self, shape):
         """
-        shape: Liste von Tupeln, die die relativen Positionen der Felder definieren,
-               z.B. [(0,0), (1,0), (0,1)] für ein L-förmiges Teil.
+        shape: List of tuples defining the relative positions of the squares,
+               e.g. [(0, 0), (1, 0), (0, 1)] for an L-shaped piece.
         """
         self.shape = shape
 
-    def rotate(self):
-        """Dreht das Teil um 90 Grad im Uhrzeigersinn."""
-        self.shape = [(y, -x) for x, y in self.shape]
+    def __rotate_once(self, coords):
+        return [(y, -x) for x, y in coords]
 
-    def reflect(self):
-        """Spiegelt das Teil horizontal."""
-        self.shape = [(-x, y) for x, y in self.shape]
+    def __reflect_once(self, coords):
+        return [(-x, y) for x, y in coords]
 
-    def get_positions(self, origin):
+    def get_positions(self, origin, rotation=0, reflect=0):
         """
-        Gibt die absoluten Positionen auf dem Brett zurück, wenn das Teil an 'origin' platziert wird.
+        Return the absolute positions on the board when placing the piece at `origin`.
+        rotation: number of 90° clockwise rotations (0–3)
+        reflect: 0=no reflect, 1=reflect horizontally
         """
-        return [(origin[0] + x, origin[1] + y) for x, y in self.shape]
+        # 1. Start from the original shape
+        coords = list(self.shape)
 
-    def pretty_print(self, shape):
+        # 2. Apply rotations (mod 4)
+        for _ in range(rotation % 4):
+            coords = self.__rotate_once(coords)
+
+        # 3. Apply a single reflection if requested
+        if reflect:
+            coords = self.__reflect_once(coords)
+
+        # 4. Translate to board origin
+        ox, oy = origin
+        return [(ox + x, oy + y) for x, y in coords]
+
+    def pretty_print(self, shape=None):
         """
-        Gibt eine grafische Darstellung des Pieces in der Konsole aus.
-        Dabei werden die Felder des Pieces in einem Raster angezeigt.
+        Print a graphical representation of the piece in the console.
+        The piece’s squares are displayed in a grid.
         """
-        if not shape:
+        if shape is None:
             shape = self.shape
 
-
-        # Bestimme minimal und maximal benötigte Koordinaten
+        # Determine the minimum and maximum coordinates needed
         min_x = min(x for x, _ in shape)
         max_x = max(x for x, _ in shape)
         min_y = min(y for _, y in shape)
         max_y = max(y for _, y in shape)
 
-        # Größe des Rasters: Breite und Höhe
+        # Calculate grid dimensions: width and height
         width = max_x - min_x + 1
         height = max_y - min_y + 1
 
-        # Erzeuge ein leeres Raster (Liste von Listen) mit Leerzeichen
+        # Create an empty grid (list of lists) filled with spaces
         grid = [[" " for _ in range(width)] for _ in range(height)]
 
-        # Fülle die Positionen des Pieces mit "X" (oder einem anderen Zeichen)
-        for (x, y) in shape:
-            # Verschiebe Koordinaten so, dass sie bei 0 beginnen
+        # Fill the piece’s positions with "X" (or another marker)
+        for x, y in shape:
+            # Shift coordinates so the grid starts at (0, 0)
             grid[y - min_y][x - min_x] = "X"
 
-        # Gib das Raster zeilenweise aus
+        # Print the grid row by row
         for row in grid:
             print("".join(row))

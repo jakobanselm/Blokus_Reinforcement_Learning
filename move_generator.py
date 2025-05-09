@@ -1,73 +1,120 @@
 from piece import Piece
-# In move_generator.py
 
+# In move_generator.py
 class Move_generator:
     def __init__(self, board):
         self.board = board
 
     def normalize_shape(self, shape):
+        """
+        Normalize a shape so that its minimum x and y coordinates start at (0,0).
+        """
         min_x = min(x for x, y in shape)
         min_y = min(y for x, y in shape)
         return [(x - min_x, y - min_y) for x, y in shape]
 
     def generate_unique_transformations(self, piece):
+        """
+        Generate all unique rotations and reflections of a piece.
+        Returns a list of Piece objects with distinct normalized shapes.
+        """
         transformations = []
         seen = set()
-        for reflect_flag in [False, True]:
+        for reflect_flag in range(2):
             for rotations in range(4):
-                new_shape = piece.shape[:]  # Kopie des Shapes
-                temp_piece = Piece(new_shape)
-                if reflect_flag:
-                    temp_piece.reflect()
-                for _ in range(rotations):
-                    temp_piece.rotate()
-                norm_shape = self.normalize_shape(temp_piece.shape)
-                canon_shape = sorted(norm_shape)
-                shape_tuple = tuple(canon_shape)
-                if shape_tuple not in seen:
-                    seen.add(shape_tuple)
-                    transformations.append(Piece(canon_shape))
+                # Copy the original shape
+                temp_piece = Piece(list(piece.shape))
+                piece_shape = temp_piece.get_positions((5,5),rotations, reflect_flag)
+                # Normalize and sort shape for canonical representation
+                norm_shape = self.normalize_shape(piece_shape)
+                canon_shape = tuple(sorted(norm_shape))
+                if canon_shape not in seen:
+                    seen.add(canon_shape)
+                    transformations.append(Piece(list(canon_shape)))
         return transformations
 
-    def get_valid_origins(self, player):
+    def get_valid_origins(self, player, board = None):
+        """
+        Compute all board positions where the given player can start placing a piece.
+        - For the first move: only empty corner cells.
+        - For subsequent moves: empty cells that have diagonal contact but no edge contact.
+        """
+
         valid_origins = set()
-        board = self.board
+        if board is None:
+            board = self.board
+        else:
+            board = board
+
+        # First move: only empty corner positions
         if board.is_first_move(player):
-            potential_origins = [
+            for pos in [
                 (0, 0),
                 (0, board.size - 1),
                 (board.size - 1, 0),
                 (board.size - 1, board.size - 1)
-            ]
-            for pos in potential_origins:
+            ]:
                 if board.is_empty(pos):
                     valid_origins.add(pos)
-        else:
-            for x in range(board.size):
-                for y in range(board.size):
-                    pos = (x, y)
-                    if board.is_empty(pos):
-                        for dx, dy in [(-1, -1), (-1, 1), (1, -1), (1, 1)]:
-                            diag = (x + dx, y + dy)
-                            if board.in_bounds(diag) and board.grid[diag[0]][diag[1]] == player.color:
-                                valid_origins.add(pos)
-                                break
+            return valid_origins
+
+        # Subsequent moves
+        for x in range(board.size):
+            for y in range(board.size):
+                if not board.is_empty((x, y)):
+                    continue
+
+                # Skip if any edge neighbor has the same color
+                skip = False
+                for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                    nx, ny = x + dx, y + dy
+                    if board.in_bounds((nx, ny)) and board.grid[ny][nx] == player.color:
+                        skip = True
+                        break
+                if skip:
+                    continue
+
+                # Include if any diagonal neighbor has the same color
+                for dx, dy in [(-1, -1), (-1, 1), (1, -1), (1, 1)]:
+                    nx, ny = x + dx, y + dy
+                    if board.in_bounds((nx, ny)) and board.grid[ny][nx] == player.color:
+                        valid_origins.add((x, y))
+                        break
+
         return valid_origins
 
     def get_moves_for_origin(self, player, origin):
         """
-        Ermittelt für einen bestimmten Ursprung (origin) alle gültigen Züge.
-        Dabei wird über alle Pieces und deren Transformationen (inklusive
-        verschiedener Pivot-Punkte) iteriert.
+        Generate all valid moves for a given player and origin position.
+        Returns a list of tuples:
+          (piece_index, transformed_shape, translation, origin, candidate_positions)
         """
         valid_moves = []
-        for piece in player.piece_set:
+        # Iterate over available pieces and their indices via mask
+        for piece_idx, piece in player.available_pieces():
             transforms = self.generate_unique_transformations(piece)
             for trans_piece in transforms:
                 for pivot in trans_piece.shape:
+                    # Compute translation vector to align pivot with origin
                     translation = (origin[0] - pivot[0], origin[1] - pivot[1])
-                    candidate_positions = [(b[0] + translation[0], b[1] + translation[1])
-                                           for b in trans_piece.shape]
+                    # Compute absolute positions on board
+                    candidate_positions = [
+                        (b[0] + translation[0], b[1] + translation[1])
+                        for b in trans_piece.shape
+                    ]
+                    # Check placement validity
                     if self.board.is_candidate_placement(candidate_positions, player):
-                        valid_moves.append((piece, trans_piece.shape, translation, origin, candidate_positions))
+                        valid_moves.append((piece_idx,
+                                            candidate_positions))
         return valid_moves
+
+    def get_valid_moves(self, player):
+        """
+        Generate all valid moves for a player by aggregating across all valid origins.
+        Each move is represented as (piece_idx, shape, translation, origin, positions).
+        """
+        valid_moves = []
+        for origin in self.get_valid_origins(player):
+            valid_moves.extend(self.get_moves_for_origin(player, origin))
+        return valid_moves
+
