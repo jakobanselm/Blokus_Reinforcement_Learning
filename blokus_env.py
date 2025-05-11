@@ -63,7 +63,7 @@ class BlokusEnv(gym.Env):
             # Penalty and fallback
             reward = REWARD_PIECE_NOT_AVAILABLE
             if valid_moves:
-                fb_idx, fb_coords = choice(valid_moves)
+                X, Y, fb_idx, rotations, reflection, fb_coords = choice(valid_moves)
                 self.game.board.place_piece(fb_idx, fb_coords, self.current_player)
                 self.current_player.drop_piece(fb_idx)
                 reward += REWARD_NO_SUCCESSFUL_MOVES
@@ -78,7 +78,7 @@ class BlokusEnv(gym.Env):
         if (ox, oy) not in valid_origins:
             reward = REWARD_NOT_THE_RIGHT_ORIGIN
             if valid_moves:
-                fb_idx, fb_coords = choice(valid_moves)
+                X, Y, fb_idx, rotations, reflection, fb_coords = choice(valid_moves)
                 self.game.board.place_piece(fb_idx, fb_coords, self.current_player)
                 self.current_player.drop_piece(fb_idx)
                 reward += REWARD_NO_SUCCESSFUL_MOVES
@@ -101,7 +101,7 @@ class BlokusEnv(gym.Env):
             reward = len(coords)
         else:
             reward = REWARD_NO_SUCCESSFUL_MOVES
-            fb_idx, fb_coords = choice(valid_moves)
+            X, Y, fb_idx, rotations, reflection, fb_coords = choice(valid_moves)
             self.game.board.place_piece(fb_idx, fb_coords, self.current_player)
             self.current_player.drop_piece(fb_idx)
             # reward remains as fallback penalty

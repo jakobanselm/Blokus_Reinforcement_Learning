@@ -1,4 +1,5 @@
 from blokus_env import BlokusEnv
+from blokus_env_masked import Blokus_Env_Masked
 from game import Game
 from move_generator import Move_generator
 from piece import Piece
@@ -10,12 +11,12 @@ game = Game(board_size = 14, player_colors=["R", "B"])
 
 
 # 2) Environment aufbauen
-env = BlokusEnv(game)
+env = Blokus_Env_Masked(game)
 
 # 3) Reset und zufälligen Schritt zum Testen
 obs = env.reset()
 for _ in range(1000):
-    act = {k: env.action_space[k].sample() for k in env.action_space}
+    act = random.choice(obs['valid_moves'])
     obs, r, done, info = env.step(act)
     env.render()
     print(r)
@@ -25,7 +26,9 @@ for _ in range(1000):
 print("Random rollout erfolgreich abgeschlossen.")
 
 """
+
 player = game.players[0]
+move_gen = Move_generator(board=game.board)
 valid_moves = move_gen.get_valid_moves(player)
 piece = Piece(PIECES_DEFINITION[19])
 pos = piece.get_positions((1,3), 2,0)
