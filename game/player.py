@@ -1,5 +1,5 @@
-from pieces_definition import PIECES_DEFINITION  # global list of all piece shapes
-from piece import Piece
+from game.pieces_definition import PIECES_DEFINITION  # global list of all piece shapes
+from game.piece import Piece
 import numpy as np
 
 class Player:

@@ -1,16 +1,18 @@
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
-from pieces_definition import PIECES_DEFINITION as ALL_PIECES
-from piece import Piece
+from game.pieces_definition import PIECES_DEFINITION as ALL_PIECES
+from game.piece import Piece
 from random import choice
-from move_generator import Move_generator
+from game.move_generator import Move_generator
+from global_constants import BOARD_SIZE
 
 # Reward shaping constants
 REWARD_PIECE_NOT_AVAILABLE    = -1
 REWARD_NO_POSSIBLE_MOVES      = -10
 REWARD_NO_SUCCESSFUL_MOVES    = 0
 REWARD_NOT_THE_RIGHT_ORIGIN   = -10
+
 
 class BlokusEnv(gym.Env):
     metadata = {'render.modes': ['human']}
@@ -24,12 +26,12 @@ class BlokusEnv(gym.Env):
 
         # Define observation and action spaces
         self.observation_space = spaces.Dict({
-            'board': spaces.Box(low=-1, high=1, shape=(14,14), dtype=np.int8),
+            'board': spaces.Box(low=-1, high=1, shape=(BOARD_SIZE,BOARD_SIZE), dtype=np.int8),
             'pieces_mask': spaces.MultiBinary(self.num_pieces)
         })
         self.action_space = spaces.Dict({
-            'x': spaces.Discrete(14),
-            'y': spaces.Discrete(14),
+            'x': spaces.Discrete(BOARD_SIZE),
+            'y': spaces.Discrete(BOARD_SIZE),
             'piece': spaces.Discrete(self.num_pieces),
             'rotation': spaces.Discrete(4),
             'reflect': spaces.Discrete(2)
@@ -37,7 +39,7 @@ class BlokusEnv(gym.Env):
         self.current_player = None
 
     def reset(self):
-        self.game.__init__(board_size=14, player_colors=["R", "B"])
+        self.game.__init__(board_size=BOARD_SIZE, player_colors=["R", "B"])
         self.current_player = self.game.players[0]
         self.current_player.reset_pieces()
         return self._get_obs()
@@ -124,9 +126,9 @@ class BlokusEnv(gym.Env):
         return self._get_obs(), reward, done, {}
 
     def _get_obs(self):
-        board = np.zeros((14,14), dtype=np.int8)
-        for y in range(14):
-            for x in range(14):
+        board = np.zeros((BOARD_SIZE,BOARD_SIZE), dtype=np.int8)
+        for y in range(BOARD_SIZE):
+            for x in range(BOARD_SIZE):
                 cell = self.game.board.grid[y][x]
                 if cell == self.current_player.color:
                     board[y, x] = 1

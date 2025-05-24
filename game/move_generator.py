@@ -1,4 +1,4 @@
-from piece import Piece
+from game.piece import Piece
 
 # In move_generator.py
 class Move_generator:

@@ -1,60 +1,43 @@
-from blokus_env import BlokusEnv
-from blokus_env_masked import Blokus_Env_Masked
-from game import Game
-from move_generator import Move_generator
-from piece import Piece
-from pieces_definition import PIECES_DEFINITION
+from env.blokus_env_masked import Blokus_Env_Masked
+from game.game import Game
 import numpy as np
 from numpy import random
-
-game = Game(board_size = 14, player_colors=["X", "O"])
-
-
-# 2) Environment aufbauen
-env = Blokus_Env_Masked(game)
-
-# 3) Reset und zufälligen Schritt zum Testen
-obs = env.reset()
-for _ in range(1000):
-    act = random.choice(obs['valid_moves'])
-    obs, r, done, info = env.step(act)
-    env.render()
-    print(r)
-    print()
-    if done:
-        obs = env.reset()
-print("Random rollout erfolgreich abgeschlossen.")
-
-"""
-
-player = game.players[0]
-move_gen = Move_generator(board=game.board)
-valid_moves = move_gen.get_valid_moves(player)
-piece = Piece(PIECES_DEFINITION[19])
-pos = piece.get_positions((1,3), 2,0)
-game.board.place_piece(19,pos,player)
-game.board.display()
-print(f"place_piece: {game.board.place_piece(0,[(2,2)],player)}")
-game.board.display()
-valid_or = move_gen.get_valid_origins(player)
-valid_moves = move_gen.get_valid_moves(player)
-
-for move in valid_or:
-    print(move)
-
-print(len(valid_moves))
-for move in valid_moves:
-    print(move)
+from global_constants import BOARD_SIZE, PLAYER_COLORS
 
 
+def test_blokus_ev_smoke():
+    game = Game(board_size = BOARD_SIZE, player_colors=PLAYER_COLORS)
 
-piece = Piece(PIECES_DEFINITION[19])
-for i in range(0,4):
-    for j in range(0,2):
-        print(piece.get_positions((9, 9), i,j))
-        piece.pretty_print()
 
-"""
+    # 2) Environment aufbauen
+    env = Blokus_Env_Masked(game)
+
+    # 2) Reset
+    obs, info = env.reset()
+
+    # 3) Random Rollout
+    for _ in range(100):
+        # a) gültige Aktionen ermitteln
+        #    info['action_mask'] beim ersten Schritt noch leer, also fallback auf Methode
+        mask = info.get('action_mask', env.get_action_mask())
+        valid_indices = np.flatnonzero(mask)
+
+        # b) zufällige Aktion wählen
+        action = random.choice(valid_indices)
+
+        # c) ausführen
+        obs, reward, done, info = env.step(action)
+
+        # d) rendern & ausgabe
+        env.render()
+        print(f"Reward: {reward:.1f}\n")
+
+        if done:
+            obs, info = env.reset()
+
+
+test_blokus_ev_smoke()
+
 
 
 

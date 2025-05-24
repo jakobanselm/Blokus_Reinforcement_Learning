@@ -1,0 +1,2 @@
+BOARD_SIZE = 14
+PLAYER_COLORS = ["X", "O"]

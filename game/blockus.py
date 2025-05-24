@@ -1,7 +1,6 @@
-from game import Game
-from player import Player
-from board import Board
-from move_generator import Move_generator
+from game.player import Player
+from game.board import Board
+from game.move_generator import Move_generator
 
 # Beispielhafte Nutzung:
 if __name__ == "__main__":

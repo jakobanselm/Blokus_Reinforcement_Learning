@@ -1,5 +1,5 @@
-from player import Player
-from board import Board
+from game.player import Player
+from game.board import Board
 
 class Game:
     def __init__(self, board_size=20, player_colors=["R", "B", "G", "Y"]):
