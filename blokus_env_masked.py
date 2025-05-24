@@ -39,7 +39,7 @@ class Blokus_Env_Masked(gym.Env):
             random.seed(seed)
 
         # Initialize a new Game instance
-        self.game.__init__(board_size=14, player_colors=["R", "B"])
+        self.game.__init__(board_size=14, player_colors=["X", "O"])
         self.current_player = self.game.players[0]
         return self._get_obs()
 

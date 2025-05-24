@@ -7,7 +7,7 @@ from pieces_definition import PIECES_DEFINITION
 import numpy as np
 from numpy import random
 
-game = Game(board_size = 14, player_colors=["R", "B"])
+game = Game(board_size = 14, player_colors=["X", "O"])
 
 
 # 2) Environment aufbauen
