@@ -70,7 +70,7 @@ class Blokus_Env_Masked(gym.Env):
         Returns:
             observation (dict): Next observation
             reward (float): Reward earned by the action
-            done (bool): Whether the game is over
+            terminated (bool): Whether the game is over
             info (dict): Contains 'action_mask' for the next step
         """
         # Decode action index to actual move parameters
@@ -102,12 +102,14 @@ class Blokus_Env_Masked(gym.Env):
         self.current_player = self.game.players[self.game.current_player_index]
 
         # Determine if the game has ended
-        done = not bool(Move_generator(self.game.board).get_valid_moves(self.current_player))
+        terminated = not bool(Move_generator(self.game.board).get_valid_moves(self.current_player))
 
         # Build next observation and action mask
         observation = self._get_obs()
         info = {'action_mask': self.get_action_mask()}
-        return observation, reward, done, info
+
+        truncated = False
+        return observation, reward, terminated, truncated, info
 
     def get_action_mask(self):
         """

@@ -26,13 +26,13 @@ def test_blokus_ev_smoke():
         action = random.choice(valid_indices)
 
         # c) ausführen
-        obs, reward, done, info = env.step(action)
+        obs, reward, terminated, truncated, info = env.step(action)
 
         # d) rendern & ausgabe
         env.render()
         print(f"Reward: {reward:.1f}\n")
 
-        if done:
+        if terminated:
             obs, info = env.reset()
 
 
