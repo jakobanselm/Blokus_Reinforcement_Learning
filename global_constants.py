@@ -1,2 +1,2 @@
-BOARD_SIZE = 14
-PLAYER_COLORS = ["X", "O"]
+BOARD_SIZE = 20
+PLAYER_COLORS = ["X", "O", "Y", "Z"]
