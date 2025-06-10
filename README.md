@@ -1,17 +1,34 @@
 # Blokus Reinforcement Learning
 
-This repository implements a small experiment using reinforcement learning for the board game Blokus. The environment is based on `gymnasium` and supports masked actions.
+Dieses Projekt untersucht Reinforcement-Learning-Ansätze für das Brettspiel **Blokus**. Die Umgebung ist in `gymnasium` implementiert und ermöglicht maskierte Aktionen.
 
-## Multi-agent training
+## Installation
 
-The new script `agent/multiagent_selfplay.py` demonstrates how two independent PPO agents can be trained against each other using self-play. Each agent alternates as the opponent for the other and the weights are updated in turns.
+Das Projekt benötigt Python 3.11 oder neuer. Die Abhängigkeiten befinden sich in `requirements.txt` und lassen sich beispielsweise mit `pip` installieren:
 
-Run the script as a normal Python module once the dependencies from `pyproject.toml` are installed.
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
 
-uv run python -m agent.test
+## Tests
 
-## 4-agent self-play
+Zur Verifikation der Umgebung und der Agenten stehen einige PyTest-Tests bereit. Sie können diese mit folgendem Befehl ausführen:
 
-`agent/train_rllib_selfplay.py` uses RLlib to train one PPO policy per player in a 4-agent self-play scenario. The algorithm periodically reports the mean episode reward and saves all policies once training finishes.
+```bash
+pytest
+```
 
-uv run python -m agent.train_rllib_selfplay
+## Beispielskripte
+
+- `agent/multiagent_selfplay.py` trainiert zwei PPO-Agenten im Selbstspiel gegeneinander.
+- `agent/train_rllib_selfplay.py` verwendet RLlib, um vier Agenten parallel im Selbstspiel zu trainieren.
+
+Die Skripte lassen sich direkt als Python-Module ausführen, sobald alle Abhängigkeiten installiert sind, z.B.:
+
+```bash
+python -m agent.multiagent_selfplay
+```
+
+Weitere Details zur Verwendung der Agenten finden sich in [Agent.md](Agent.md).
