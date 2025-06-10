@@ -24,6 +24,7 @@ pytest
 
 - `agent/multiagent_selfplay.py` trainiert zwei PPO-Agenten im Selbstspiel gegeneinander.
 - `agent/train_rllib_selfplay.py` verwendet RLlib, um vier Agenten parallel im Selbstspiel zu trainieren.
+- `agent/train_multiagent_rllib_v3.py` nutzt die verbesserte Multi-Agent-Umgebung und trainiert separate Politiken per PPO.
 
 Die Skripte lassen sich direkt als Python-Module ausführen, sobald alle Abhängigkeiten installiert sind, z.B.:
 

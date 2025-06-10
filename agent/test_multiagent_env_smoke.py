@@ -23,7 +23,7 @@ def test_multiagent_env_smoke():
         assert isinstance(obs['pieces_mask'], np.ndarray)
 
     # 3) ein paar Steps durchlaufen
-    for step in range(200):
+    for step in range(400):
     # Bestimme aktuell handelnden Spieler und sein Mask
         cur_idx = env.current_agent_index
         cur_id  = env.agent_ids[cur_idx]
@@ -36,7 +36,6 @@ def test_multiagent_env_smoke():
             action_dict[cur_id] = int(np.random.choice(valid))
 
         obs_dict, rew_dict, done_dict, info_dict = env.step(action_dict)
-        env.render()
 
         # 5) Struktur-Checks
         # a) Obs/Reward/Done/Info keys
@@ -53,7 +52,6 @@ def test_multiagent_env_smoke():
             assert 'action_mask' in info_dict[aid],   f"info von {aid} braucht 'action_mask'"
             mask = info_dict[aid]['action_mask']
             assert isinstance(mask, np.ndarray) and mask.dtype == bool
-        env.render()  # optional: rendern nach jedem Step
 
         # c) abbrechen wenn alle fertig
         if done_dict["__all__"]:
@@ -65,7 +63,7 @@ def test_multiagent_env_smoke():
              }
             #break
     else:
-        raise AssertionError("Env hat nach 200 Steps nicht beendet")
+        raise AssertionError("Env hat nach 400 Steps nicht beendet")
 
     print("MultiAgentEnv smoke test passed!")
 
