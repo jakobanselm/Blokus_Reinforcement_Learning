@@ -1,3 +1,8 @@
+import os
+from colorama import init, Fore, Style
+
+# Initialisiere colorama (macht Windows-kompatible ANSI-Ausgabe)
+init(autoreset=True)
 class Board:
     def __init__(self, size=20):
         self.size = size
@@ -114,7 +119,43 @@ class Board:
             return True
 
     def display(self):
-        """Prints the current board to the console."""
+        """Print current board with ANSI colors."""
+        color_map = {
+            "R": Fore.RED + "R" + Style.RESET_ALL,
+            "B": Fore.BLUE + "B" + Style.RESET_ALL,
+            "G": Fore.GREEN + "G" + Style.RESET_ALL,
+            "Y": Fore.YELLOW + "Y" + Style.RESET_ALL,
+            None: "."
+        }
+        supports_color = os.getenv("ANSI_COLORS_DISABLED") is None
+
         for row in self.grid:
-            print(" ".join([str(cell) if cell is not None else '.' for cell in row]))
+            cells = []
+            for cell in row:
+                # 1) Extrahiere das zu matchende Symbol
+                if cell is None:
+                    sym = None
+                elif isinstance(cell, str):
+                    sym = cell
+                else:
+                    # z.B. cell.color, cell.symbol oder str(cell)
+                    sym = getattr(cell, "color", str(cell))
+
+                # 2) Mappe auf gefärbtes Zeichen oder Fallback
+                if supports_color:
+                    cells.append(color_map.get(sym, str(sym)))
+                else:
+                    cells.append(str(sym) if sym is not None else ".")
+            print(" ".join(cells))
         print()
+        """Prints the current board to the console with color-coded players."""
+        # Mappe deine Spielersymbole auf Farben
+        color_map = {
+            "R": Fore.RED + "R" + Style.RESET_ALL,      # Rot
+            "B": Fore.BLUE + "B" + Style.RESET_ALL,     # Blau
+            "G": Fore.GREEN + "G" + Style.RESET_ALL,    # Grün
+            "Y": Fore.YELLOW + "Y" + Style.RESET_ALL,   # Gelb
+            None: "."                                   # Leer
+        }
+
+    
