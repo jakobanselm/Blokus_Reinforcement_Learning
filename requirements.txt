@@ -1,0 +1,9 @@
+colorama>=0.4.6
+dm-tree>=0.1.9
+lz4>=4.4.4
+ray[tune]>=2.46.0
+sb3-contrib>=2.6.0
+scipy>=1.15.3
+stable-baselines3>=2.6.0
+tensorboard>=2.19.0
+tensorflow>=2.19.0
