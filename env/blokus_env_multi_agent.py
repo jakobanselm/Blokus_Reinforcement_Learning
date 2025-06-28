@@ -1,7 +1,9 @@
 import gymnasium as gym
 from gymnasium import spaces
+from gymnasium.utils import seeding
+
 import numpy as np
-import random
+import logging
 
 from ray.rllib.env import MultiAgentEnv
 
@@ -10,21 +12,26 @@ from game.move_generator import Move_generator
 from game.game import Game
 from global_constants import BOARD_SIZE, PLAYER_COLORS
 
+logging.basicConfig(level=logging.INFO)
 
 class BlokusMultiAgentEnv(MultiAgentEnv):
     """
-    A RLlib‐compatible MultiAgentEnv for Blokus self-play.
-    Each agent_id is “player_0”, “player_1”, … and controls exactly one color.
+    A RLlib-compatible MultiAgentEnv for Blokus self-play.
+    Each agent_id is "player_0", "player_1", … and controls exactly one color.
     Turns advance round-robin; non-current agents submit dummy actions.
     """
+    metadata = {"render_modes": ["human", "rgb_array"]}
 
     def __init__(self, config=None):
-        super().__init__()  
-        # number of players / policies
+        super().__init__()
+        # Initialize random number generator for reproducibility
+        self.np_random, _ = seeding.np_random(None)
+
+        # Number of players and their agent IDs
         self.num_players = len(PLAYER_COLORS)
         self.agent_ids = [f"player_{i}" for i in range(self.num_players)]
 
-        # build full action list once
+        # Precompute full action list: placements and skip action
         self.all_actions = [
             (x, y, p_idx, rot, refl)
             for x in range(BOARD_SIZE)
@@ -33,119 +40,139 @@ class BlokusMultiAgentEnv(MultiAgentEnv):
             for rot in range(4)
             for refl in range(2)
         ]
-        # add “skip” action at end
+        # Add skip action as last index
         self.skip_index = len(self.all_actions)
         self.all_actions.append(None)
 
-        # all agents share same spaces
+        # Define shared action and observation spaces
         self.action_space = spaces.Discrete(len(self.all_actions))
         self.observation_space = spaces.Dict({
-            "board": spaces.Box(-1, 1, (BOARD_SIZE, BOARD_SIZE), np.int8),
+            "board": spaces.Box(low=-1, high=1, shape=(BOARD_SIZE, BOARD_SIZE), dtype=np.int8),
             "pieces_mask": spaces.MultiBinary(len(ALL_PIECES)),
         })
 
-        # Will be initialized in reset()
+        # Initialize environment state placeholders
         self.game: Game = None
         self.current_agent_index: int = 0
         self.inactive_players: set[int] = set()
 
+        # Build mapping from action tuple to index for fast mask computation
+        self._action_to_index = {action: idx for idx, action in enumerate(self.all_actions)}
+
+    def seed(self, seed=None):
+        """
+        Set the seed for random operations and return the seed.
+        """
+        self.np_random, seed = seeding.np_random(seed)
+        return [seed]
+
     def reset(self):
-        """Reset board, pick random starting agent, clear inactive set."""
-        self.inactive_players = set()
+        """
+        Reset the game to an initial state.
+        Randomly select starting player using the seeded RNG.
+        Returns initial observations dict for each agent.
+        """
+        self.inactive_players.clear()
         self.game = Game(board_size=BOARD_SIZE, player_colors=PLAYER_COLORS)
-        # pick random starter
-        self.current_agent_index = random.randrange(self.num_players)
+
+        # Choose starting player in a reproducible way
+        self.current_agent_index = int(self.np_random.integers(self.num_players))
         self.game.current_player_index = self.current_agent_index
 
-        # build initial obs for every agent
-        obs = {}
-        for i, agent_id in enumerate(self.agent_ids):
-            obs[agent_id] = self._compute_obs(i)
-        return obs
+        # Compute and return observations for all agents
+        return {
+            agent_id: self._compute_obs(idx)
+            for idx, agent_id in enumerate(self.agent_ids)
+        }
 
     def step(self, action_dict):
         """
-        action_dict: { agent_id: action_index, … }
-        We only execute the action for the current agent; others get zero‐reward.
+        Execute a step given dict of agent actions.
+        Only the current agent's action is applied; others receive zero reward.
+        Returns (obs, rewards, dones, infos).
         """
-        # identify current agent
         cur_idx = self.current_agent_index
         cur_id = self.agent_ids[cur_idx]
         action_idx = action_dict[cur_id]
 
-        # apply current agent's action
-        reward, done, info = self._apply_action(cur_idx, action_idx)
+        # Validate provided action index
+        self._validate_action_idx(action_idx)
 
-        # build outputs for all agents
+        # Apply action for current agent
+        reward, done, _ = self._apply_action(cur_idx, action_idx)
+
+        # Build outputs for all agents
         obs, rewards, dones, infos = {}, {}, {}, {}
-        for i, agent_id in enumerate(self.agent_ids):
-            obs[agent_id] = self._compute_obs(i)
-            rewards[agent_id] = reward if i == cur_idx else 0.0
+        for idx, agent_id in enumerate(self.agent_ids):
+            obs[agent_id] = self._compute_obs(idx)
+            rewards[agent_id] = reward if idx == cur_idx else 0.0
             dones[agent_id] = done
-            
-            # statt nur für den aktiven Spieler jetzt für alle:
-            infos[agent_id] = {
-                "action_mask": self._compute_mask(i)
-            }
+            infos[agent_id] = {"action_mask": self._compute_mask(idx)}
 
-        # RLlib‐Flag für alle beendet
         dones["__all__"] = done
         return obs, rewards, dones, infos
 
+    def _validate_action_idx(self, action_idx: int):
+        """
+        Validate that the action index is within the valid range [0, skip_index].
+        Raises ValueError if invalid.
+        """
+        if not 0 <= action_idx <= self.skip_index:
+            raise ValueError(
+                f"Invalid action index {action_idx}; must be between 0 and {self.skip_index}."
+            )
+
     def _apply_action(self, player_idx: int, action_idx: int):
         """
-        Execute one step for the given player index.
+        Apply the specified action for the given player index.
         Returns (reward, done, info).
         """
-        # set game to that player's turn
+        # Set current player in game state
         self.current_agent_index = player_idx
         self.game.current_player_index = player_idx
-        self.current_player = self.game.players[player_idx]
+        current_player = self.game.players[player_idx]
 
+        # Compute valid action mask for this player
         mask = self._compute_mask(player_idx)
 
-        # 1) skip/dropout wenn Skip-Index oder die gewählte Aktion nicht im Masken-Array steht
+        # If skip or invalid action, end player's game
         if action_idx == self.skip_index or not mask[action_idx]:
-            # compute end‐reward
+            # Compute end-of-game reward penalty or bonus
             remaining = sum(
                 len(ALL_PIECES[i])
-                for i, avail in enumerate(self.current_player.pieces_mask) if avail
+                for i, available in enumerate(current_player.pieces_mask) if available
             )
             reward = 15.0 if remaining == 0 else -float(remaining)
 
-            # mark player inactive (only first time penalize)
+            # First time penalty only, subsequent skips yield zero
             if player_idx not in self.inactive_players:
                 self.inactive_players.add(player_idx)
             else:
-                reward = 0.0  # no double‐punishment
+                reward = 0.0
 
             done = len(self.inactive_players) == self.num_players
-            # advance turn if not all finished
             if not done:
                 self._advance_to_next_active()
             return reward, done, {"action_mask": self._compute_mask(self.current_agent_index)}
 
-        # 2) normal move
-        action = self.all_actions[action_idx]
-        x, y, p_idx, rot, refl = action
-        raw_valid = Move_generator(self.game.board).get_valid_moves(self.current_player)
+        # Normal valid move
+        x, y, p_idx, rot, refl = self.all_actions[action_idx]
+        raw_valid = Move_generator(self.game.board).get_valid_moves(current_player)
         coords = next(
-            c for vx, vy, pi, r, rf, c in raw_valid
+            coord for vx, vy, pi, r, rf, coord in raw_valid
             if (vx, vy, pi, r, rf) == (x, y, p_idx, rot, refl)
         )
-        self.game.board.place_piece(p_idx, coords, self.current_player)
-        self.current_player.drop_piece(p_idx)
+        self.game.board.place_piece(p_idx, coords, current_player)
+        current_player.drop_piece(p_idx)
 
-        # no intermediate reward
-        reward = 0.0
-        done = False
-
-        # advance to next active player
+        reward, done = 0.0, False
         self._advance_to_next_active()
         return reward, done, {"action_mask": self._compute_mask(self.current_agent_index)}
 
     def _advance_to_next_active(self):
-        """Round‐robin advance until finding a player not in inactive_players."""
+        """
+        Advance turn in round-robin until an active player is found.
+        """
         for _ in range(self.num_players):
             self.game.next_turn()
             idx = self.game.current_player_index
@@ -156,59 +183,91 @@ class BlokusMultiAgentEnv(MultiAgentEnv):
     def _compute_obs(self, player_idx: int):
         """
         Build the observation for the given player:
-         - board: 1 for own stones, -1 for any opponent, 0 empty
-         - pieces_mask: which of this player's pieces remain
+        - 'board': 1 for own stones, -1 for opponents, 0 for empty
+        - 'pieces_mask': Boolean mask of remaining pieces
         """
         player = self.game.players[player_idx]
-        board = np.zeros((BOARD_SIZE, BOARD_SIZE), dtype=np.int8)
-        for r in range(BOARD_SIZE):
-            for c in range(BOARD_SIZE):
-                cell = self.game.board.grid[r][c]
-                if cell == player.color:
-                    board[r, c] = 1
-                elif cell is not None:
-                    board[r, c] = -1
+        grid = np.array(self.game.board.grid, dtype=object)
+
+        own_mask = (grid == player.color)
+        opp_mask = (grid != None) & (~own_mask)
+
+        board = own_mask.astype(np.int8) - opp_mask.astype(np.int8)
         return {"board": board, "pieces_mask": player.pieces_mask.copy()}
 
     def _compute_mask(self, player_idx: int) -> np.ndarray:
         """
-        Build action mask for a specific player:
-         - legal moves → True
-         - skip action → True only if no legal moves
+        Build action mask for the given player:
+        - True for legal moves; skip action only if no legal moves
         """
         player = self.game.players[player_idx]
         raw_valid = Move_generator(self.game.board).get_valid_moves(player)
-        valid_keys = {(vx, vy, p, r, rf) for vx, vy, p, r, rf, _ in raw_valid}
+        valid_actions = {(vx, vy, pi, r, rf) for vx, vy, pi, r, rf, _ in raw_valid}
 
         mask = np.zeros(len(self.all_actions), dtype=bool)
-        for idx, action in enumerate(self.all_actions):
-            if action is None:
-                if not valid_keys:
-                    mask[idx] = True
-            else:
-                if action in valid_keys:
-                    mask[idx] = True
+        for action in valid_actions:
+            mask[self._action_to_index[action]] = True
+        if not valid_actions:
+            mask[self.skip_index] = True
         return mask
 
     def render(self, mode="human"):
+        """
+        Render the board.
+        Modes:
+         - 'human': log to console with ASCII
+         - 'rgb_array': return an RGB image as numpy array
+        """
+        if mode == "human":
+            logging.info(f"=== Current Player: player_{self.current_agent_index} ({self.game.players[self.current_agent_index].color}) ===")
+            self.game.board.display()
+        elif mode == "rgb_array":
+            return self._render_frame()
+        else:
+            raise ValueError(f"Unsupported render mode: {mode}")
 
+    def _render_frame(self) -> np.ndarray:
         """
-        Druckt das Board und zeigt, welcher Agent gerade am Zug ist.
+        Build and return an RGB image of the current board state.
+        Returns:
+            np.ndarray of shape (BOARD_SIZE, BOARD_SIZE, 3), dtype=np.uint8
         """
-        print(f"=== Current Player: player_{self.current_agent_index} ({self.game.players[self.current_agent_index].color}) ===")
-        self.game.board.display()
+        grid = self.game.board.grid
+        height, width = BOARD_SIZE, BOARD_SIZE
+        img = np.zeros((height, width, 3), dtype=np.uint8)
+        # Define a simple palette: empty white, then red, green, blue, yellow
+        palette = [
+            (255, 255, 255),
+            (255, 0, 0),
+            (0, 255, 0),
+            (0, 0, 255),
+            (255, 255, 0)
+        ]
+        color_map = {None: palette[0]}
+        for i, color in enumerate(PLAYER_COLORS):
+            color_map[color] = palette[i+1]
+        for r in range(height):
+            for c in range(width):
+                cell = grid[r][c]
+                img[r, c] = color_map.get(cell, palette[0])
+        return img
+
+    def close(self):
+        """
+        Clean up any resources (placeholder).
+        """
+        pass
 
     @property
     def observation_spaces(self):
-        # keys müssen exakt den agent_ids entsprechen, z.B. "player_0", "player_1", …
-        return {
-            agent_id: self.observation_space
-            for agent_id in self.agent_ids
-        }
+        """
+        Return dict of observation spaces for each agent.
+        """
+        return {agent_id: self.observation_space for agent_id in self.agent_ids}
 
     @property
     def action_spaces(self):
-        return {
-            agent_id: self.action_space
-            for agent_id in self.agent_ids
-        }
+        """
+        Return dict of action spaces for each agent.
+        """
+        return {agent_id: self.action_space for agent_id in self.agent_ids}

@@ -34,3 +34,6 @@ class Game:
 
     def next_turn(self):
         self.current_player_index = (self.current_player_index + 1) % len(self.players)
+
+    def get_board(self):
+        return self.board.grid
