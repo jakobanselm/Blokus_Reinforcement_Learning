@@ -1,6 +1,7 @@
 from game.pieces_definition import PIECES_DEFINITION  # global list of all piece shapes
 from game.piece import Piece
 import numpy as np
+import logging
 
 class Player:
     def __init__(self, color):

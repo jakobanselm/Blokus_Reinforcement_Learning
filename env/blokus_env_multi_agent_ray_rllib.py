@@ -1,22 +1,28 @@
-import gymnasium as gym
+
+#RL libarys
 from gymnasium import spaces
 from gymnasium.utils import seeding
+from ray.rllib.env.multi_agent_env import MultiAgentEnv
 
+#Helper
 import numpy as np
 import logging
 from typing import Dict, Tuple, Any, Set, Optional, List
-
-from ray.rllib.env import MultiAgentEnv
-
 logging.basicConfig(level=logging.INFO)
 
+#Game logic
+from game.move_generator import Move_generator
+from game.game import Game
+
+#Global constants
+from global_constants import PLAYER_COLORS, BOARD_SIZE
+from game.pieces_definition import PIECES_DEFINITION as ALL_PIECES
+
 class BlokusMultiAgentEnv(MultiAgentEnv):
-    """
-    Eine RLlib-kompatible MultiAgentEnv für Blokus, die den modernen Gymnasium- und Ray-APIs entspricht.
-    """
+
     metadata = {"render_modes": ["human", "rgb_array"], "name": "Blokus_v1"}
 
-    # Die Typ-Annotationen für die Rückgabewerte von step() werden hier zur besseren Lesbarkeit definiert
+
     ObsDict = Dict[str, Dict[str, np.ndarray]]
     RewardDict = Dict[str, float]
     TerminatedDict = Dict[str, bool]
@@ -28,18 +34,10 @@ class BlokusMultiAgentEnv(MultiAgentEnv):
 
     def __init__(self, config=None):
         super().__init__()
-        # Das Seeding wird jetzt ausschließlich über reset(seed=...) gehandhabt.
-        # Der np_random Generator wird beim ersten Aufruf von reset() initialisiert.
-        self.np_random = None
+        self.possible_agents = [f"player_{i}" for i in range(len(PLAYER_COLORS))]
+        self.agents = self.possible_agents
 
-        self.num_players = len(PLAYER_COLORS)
-        
-        # RLlib > 2.0 erfordert, dass `possible_agents` und `agents` definiert sind.
-        # possible_agents: Alle Agenten, die jemals in der Umgebung existieren könnten.
-        # agents: Die Agenten, die in der aktuellen Episode aktiv sind.
-        self.possible_agents = [f"player_{i}" for i in range(self.num_players)]
-        self.agents = self.possible_agents[:]
-
+        # Define shared action and observation spaces
         self.all_actions = [
             (x, y, p_idx, rot, refl)
             for x in range(BOARD_SIZE)
@@ -48,48 +46,54 @@ class BlokusMultiAgentEnv(MultiAgentEnv):
             for rot in range(4)
             for refl in range(2)
         ]
-        self.skip_index = len(self.all_actions)
-        self.all_actions.append(None) # None repräsentiert den "skip" Zug
-
-        # Geteilte Action- und Observation-Spaces für alle Agenten
+        self.all_actions.append(None)      # Länge N+1
+        # skip_index ist jetzt genau der letzte Slot
+        self.skip_index = len(self.all_actions) - 1  # == N
+        # Discrete–Space deckt 0…N ab
         self.action_space = spaces.Discrete(len(self.all_actions))
-        self.observation_space = spaces.Dict({
+        _action_space_all = spaces.Discrete(len(self.all_actions))
+        _observation_space_all = spaces.Dict({
             "board": spaces.Box(low=-1, high=1, shape=(BOARD_SIZE, BOARD_SIZE), dtype=np.int8),
-            "action_mask": spaces.Box(low=0, high=1, shape=(self.action_space.n,), dtype=np.int8), # Empfehlung: Action Mask in die Obs
-            "pieces_mask": spaces.MultiBinary(len(ALL_PIECES)),
+            "pieces_mask": spaces.MultiBinary(len(ALL_PIECES))
         })
-        
+        self.action_spaces = {
+            agent: _action_space_all
+            for agent in self.possible_agents
+        }
+        self.observation_spaces = {
+            agent: _observation_space_all
+            for agent in self.possible_agents
+        }
+
+        # Initialize environment state placeholders
         self.game: Game = None
+        self.inactive_players: set[int] = set()
         self.current_agent_index: int = 0
-        self.inactive_players: Set[int] = set()
+        self.num_players: int = len(PLAYER_COLORS)
+
+        # Build mapping from action tuple to index for fast mask computation
         self._action_to_index = {action: idx for idx, action in enumerate(self.all_actions)}
 
-    # Die separate `seed`-Methode ist veraltet und sollte entfernt werden.
-    # def seed(self, seed=None):
-    #     self.np_random, seed = seeding.np_random(seed)
-    #     return [seed]
 
-    def reset(self, *, seed: Optional[int] = None, options: Optional[Dict] = None) -> ResetReturn:
+    def reset(self, *, seed=421, options=None) -> ResetReturn:
         """
-        Setzt die Umgebung zurück. Entspricht der Gymnasium-API.
+        Reset the game to an initial state.
+        Randomly select starting player using the seeded RNG.
+        Returns initial observations dict for each agent.
         """
-        # `super().reset()` kümmert sich um das Seeding, inkl. der Initialisierung von `self.np_random`
-        super().reset(seed=seed)
-        
+        self.np_random, _ = seeding.np_random(seed)
         self.inactive_players.clear()
+
+        self.agents = self.possible_agents[:]
         self.game = Game(board_size=BOARD_SIZE, player_colors=PLAYER_COLORS)
-        
-        # `self.np_random` wird durch `super().reset()` initialisiert.
+        # Choose starting player in a reproducible way
         self.current_agent_index = int(self.np_random.integers(self.num_players))
         self.game.current_player_index = self.current_agent_index
-
-        # Setzt die Liste der aktiven Agenten für die neue Episode zurück
-        self.agents = self.possible_agents[:]
-
-        observations = {agent_id: self._compute_obs(idx) for idx, agent_id in enumerate(self.agents)}
-        infos = {agent_id: {} for agent_id in self.agents} # Info-Dict kann anfangs leer sein
-
-        return observations, infos
+        # Compute and return observations for all agents
+        agent_id = self.possible_agents[self.current_agent_index]
+        obs_dict  = {agent_id: self._compute_obs(self.current_agent_index)}
+        info_dict = {agent_id: {"action_mask": self._compute_mask(self.current_agent_index)}}
+        return obs_dict, info_dict
 
     def step(self, action_dict: Dict[str, int]) -> StepReturn:
         """
@@ -99,35 +103,47 @@ class BlokusMultiAgentEnv(MultiAgentEnv):
         cur_id = self.agents[cur_idx]
         action_idx = action_dict[cur_id]
 
-        if not (0 <= action_idx <= self.skip_index):
+        if not (0 <= action_idx < self.action_space.n):
             raise ValueError(f"Ungültiger Action-Index {action_idx}")
 
-        reward, terminated = self._apply_action(cur_idx, action_idx)
-
-        # Truncated ist False, da das Spiel nur durch Endbedingungen terminiert wird,
-        # nicht durch ein künstliches Zeitlimit.
+        action = action_dict[cur_id]
+        reward, terminated = self._apply_action(cur_idx, action)
         truncated = False
-        
-        # Erstelle die Rückgabedictionaries für alle Agenten
-        obs, rewards, terminateds, truncateds, infos = {}, {}, {}, {}, {}
-        
-        # Der __all__-Schlüssel ist entscheidend, um RLlib das Ende der Episode zu signalisieren.
-        terminateds["__all__"] = terminated
-        truncateds["__all__"] = truncated
+        if not terminated:
+            self._advance_to_next_active()
+        next_idx = self.current_agent_index
+        next_id  = self.possible_agents[next_idx]
 
-        for idx, agent_id in enumerate(self.agents):
-            obs[agent_id] = self._compute_obs(idx)
-            rewards[agent_id] = reward if idx == cur_idx else 0.0
-            terminateds[agent_id] = terminated
-            truncateds[agent_id] = truncated
-            infos[agent_id] = {} # Infos werden nach Bedarf gefüllt
+        obs_dict     = { next_id: self._compute_obs(next_idx) }
+        info_dict    = { next_id: { "action_mask": self._compute_mask(next_idx) } }
+        reward_dict  = { cur_id: reward }
+        term_dict    = { "__all__": terminated }
+        trunc_dict   = { "__all__": truncated }
 
-        return obs, rewards, terminateds, truncateds, infos
+        return obs_dict, reward_dict, term_dict, trunc_dict, info_dict
+            
 
+    
+    def _compute_obs(self, player_idx: int):
+        """
+        Build the observation for the given player:
+        - 'board': 1 for own stones, -1 for opponents, 0 for empty
+        - 'pieces_mask': Boolean mask of remaining pieces
+        """
+        player = self.game.players[player_idx]
+        grid = np.array(self.game.board.grid, dtype=object)
+
+        own_mask = (grid == player.color)
+        opp_mask = (grid != None) & (~own_mask)
+
+        board = own_mask.astype(np.int8) - opp_mask.astype(np.int8)
+        return {"board": board, "pieces_mask": player.pieces_mask.copy()}
+    
     def _apply_action(self, player_idx: int, action_idx: int) -> Tuple[float, bool]:
         """
         Wendet die Aktion an und gibt (reward, terminated) zurück.
         """
+        self.current_agent_index = player_idx
         self.game.current_player_index = player_idx
         current_player = self.game.players[player_idx]
         
@@ -147,21 +163,19 @@ class BlokusMultiAgentEnv(MultiAgentEnv):
                 self.inactive_players.add(player_idx)
 
             terminated = len(self.inactive_players) == self.num_players
-            if not terminated:
-                self._advance_to_next_active()
             return reward, terminated
 
         # Gültiger Zug
         x, y, p_idx, rot, refl = self.all_actions[action_idx]
-        
-        # Diese Logik hängt stark von Ihren Spiel-Klassen ab.
-        # Annahme: place_piece und drop_piece modifizieren den Zustand korrekt.
-        # raw_valid = MockMoveGenerator(self.game.board).get_valid_moves(current_player)
-        # coords = next(...)
-        # self.game.board.place_piece(...)
+        raw_valid = Move_generator(self.game.board).get_valid_moves(current_player)
+        coords = next(
+            coord for vx, vy, pi, r, rf, coord in raw_valid
+            if (vx, vy, pi, r, rf) == (x, y, p_idx, rot, refl)
+        )
+        self.game.board.place_piece(p_idx, coords, current_player)
         current_player.drop_piece(p_idx)
 
-        self._advance_to_next_active()
+
         return 0.0, False
 
     def _advance_to_next_active(self):
@@ -173,32 +187,8 @@ class BlokusMultiAgentEnv(MultiAgentEnv):
             idx = self.game.current_player_index
             if idx not in self.inactive_players:
                 self.current_agent_index = idx
-                self.current_player = self.possible_agents[idx]
                 return
-
-    def _compute_obs(self, player_idx: int) -> Dict[str, np.ndarray]:
-        """
-        Erstellt die Observation für einen Spieler.
-        Empfehlung: Die Action Mask direkt in die Observation zu integrieren,
-        da sie für die Entscheidung des Agenten kritisch ist.
-        """
-        player = self.game.players[player_idx]
-        
-        # Board-Repräsentation (1 für eigene, -1 für gegnerische Steine)
-        grid = np.array(self.game.board.grid, dtype=object)
-        own_mask = (grid == player.color)
-        opp_mask = (grid != None) & (~own_mask)
-        board_state = own_mask.astype(np.int8) - opp_mask.astype(np.int8)
-
-        # Action Mask
-        action_mask = self._compute_mask(player_idx)
-
-        return {
-            "board": board_state,
-            "pieces_mask": player.pieces_mask.copy().astype(np.int8),
-            "action_mask": action_mask.astype(np.int8)
-        }
-
+            
     def _compute_mask(self, player_idx: int) -> np.ndarray:
         """
         Erstellt die Action Mask für einen Spieler.
@@ -208,12 +198,13 @@ class BlokusMultiAgentEnv(MultiAgentEnv):
             mask = np.zeros(self.action_space.n, dtype=bool)
             mask[self.skip_index] = True
             return mask
+        
             
         player = self.game.players[player_idx]
-        raw_valid = MockMoveGenerator(self.game.board).get_valid_moves(player)
+        raw_valid = Move_generator(self.game.board).get_valid_moves(player)
         valid_actions = {(vx, vy, pi, r, rf) for vx, vy, pi, r, rf, _ in raw_valid}
 
-        mask = np.zeros(self.action_space.n, dtype=bool)
+        mask = np.zeros(len(self.all_actions), dtype=bool)
         if not valid_actions:
             mask[self.skip_index] = True
         else:
@@ -230,8 +221,8 @@ class BlokusMultiAgentEnv(MultiAgentEnv):
          - 'rgb_array': return an RGB image as numpy array
         """
         if mode == "human":
-            logging.info(f"=== Current Player: player_{self.current_agent_index} ({self.game.players[self.current_agent_index].color}) ===")
             self.game.board.display()
+            logging.info(f"=== Current Player: player_{self.current_agent_index} ({self.game.players[self.current_agent_index].color}) ===")
         elif mode == "rgb_array":
             return self._render_frame()
         else:
@@ -269,16 +260,7 @@ class BlokusMultiAgentEnv(MultiAgentEnv):
         """
         pass
 
-    @property
-    def observation_spaces(self):
-        """
-        Return dict of observation spaces for each agent.
-        """
-        return {agent_id: self.observation_space for agent_id in self.agent_ids}
 
-    @property
-    def action_spaces(self):
-        """
-        Return dict of action spaces for each agent.
-        """
-        return {agent_id: self.action_space for agent_id in self.agent_ids}
+
+
+    

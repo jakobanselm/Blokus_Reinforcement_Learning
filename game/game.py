@@ -7,6 +7,7 @@ class Game:
         # Create player objects based on the defined colors.
         self.players = [Player(color) for color in player_colors]
         self.current_player_index = 0
+        self.current_player = self.players[self.current_player_index]
 
     def play_turn(self):
         current_player = self.players[self.current_player_index]

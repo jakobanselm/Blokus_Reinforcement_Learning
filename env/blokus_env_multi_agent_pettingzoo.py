@@ -2,8 +2,12 @@ import gymnasium as gym
 from gymnasium import spaces
 from gymnasium.utils import seeding
 
+from pettingzoo.utils import ParallelEnv
+from gymnasium import spaces
+
 import numpy as np
 import logging
+
 
 from ray.rllib.env import MultiAgentEnv
 
@@ -14,7 +18,7 @@ from global_constants import BOARD_SIZE, PLAYER_COLORS
 
 logging.basicConfig(level=logging.INFO)
 
-class BlokusMultiAgentEnv(MultiAgentEnv):
+class MultiAgentEnv(ParallelEnv):
     """
     A RLlib-compatible MultiAgentEnv for Blokus self-play.
     Each agent_id is "player_0", "player_1", … and controls exactly one color.
@@ -23,15 +27,12 @@ class BlokusMultiAgentEnv(MultiAgentEnv):
     metadata = {"render_modes": ["human", "rgb_array"]}
 
     def __init__(self, config=None):
-        super().__init__()
-        # Initialize random number generator for reproducibility
-        self.np_random, _ = seeding.np_random(None)
-
-        # Number of players and their agent IDs
         self.num_players = len(PLAYER_COLORS)
-        self.agent_ids = [f"player_{i}" for i in range(self.num_players)]
+        self.possible_agents = [f"player_{i}" for i in range(self.num_players)]
+        self.agent_name_mapping = {agent: idx
+                                   for idx, agent in enumerate(self.possible_agents)}
 
-        # Precompute full action list: placements and skip action
+        # identisch zu Dir: kompletter Aktions-Space + Skip
         self.all_actions = [
             (x, y, p_idx, rot, refl)
             for x in range(BOARD_SIZE)
@@ -40,16 +41,18 @@ class BlokusMultiAgentEnv(MultiAgentEnv):
             for rot in range(4)
             for refl in range(2)
         ]
-        # Add skip action as last index
         self.skip_index = len(self.all_actions)
         self.all_actions.append(None)
 
+    
         # Define shared action and observation spaces
-        self.action_space = spaces.Discrete(len(self.all_actions))
-        self.observation_space = spaces.Dict({
-            "board": spaces.Box(low=-1, high=1, shape=(BOARD_SIZE, BOARD_SIZE), dtype=np.int8),
+        self.action_spaces = {agent: spaces.Discrete(len(self.all_actions))
+                               for agent in self.possible_agents}
+        self.observation_spaces = {agent: spaces.Dict({
+            "board": spaces.Box(-1, 1, (BOARD_SIZE, BOARD_SIZE), np.int8),
             "pieces_mask": spaces.MultiBinary(len(ALL_PIECES)),
-        })
+            "action_mask": spaces.MultiBinary(len(self.all_actions)),
+        }) for agent in self.possible_agents}
 
         # Initialize environment state placeholders
         self.game: Game = None
@@ -203,8 +206,6 @@ class BlokusMultiAgentEnv(MultiAgentEnv):
         player = self.game.players[player_idx]
         raw_valid = Move_generator(self.game.board).get_valid_moves(player)
         valid_actions = {(vx, vy, pi, r, rf) for vx, vy, pi, r, rf, _ in raw_valid}
-
-        logging.info(f"Valid actions for player {player.color}: {sum(player.pieces_mask)}")
 
         mask = np.zeros(len(self.all_actions), dtype=bool)
         for action in valid_actions:
