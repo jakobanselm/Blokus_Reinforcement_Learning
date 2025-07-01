@@ -259,8 +259,3 @@ class BlokusMultiAgentEnv(MultiAgentEnv):
         Clean up any resources (placeholder).
         """
         pass
-
-
-
-
-    

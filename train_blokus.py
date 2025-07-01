@@ -33,9 +33,11 @@ def main():
     config = (
         PPOConfig()
         .environment("blokus_multi_agent")
-        .framework("tf2")
-        .api_stack(enable_rl_module_and_learner=False,
-                   enable_env_runner_and_connector_v2=False)
+        .framework("torch")
+        .api_stack(
+            enable_rl_module_and_learner=False,
+            enable_env_runner_and_connector_v2=False,
+        )
         .env_runners(num_env_runners=0)
         .multi_agent(
             policies={
@@ -49,7 +51,6 @@ def main():
         )
         .rl_module(
             model_config={
-                "use_action_masking": True,
                 "fcnet_hiddens": [256, 256],
             }
         )

@@ -17,5 +17,6 @@ dependencies = [
     "scipy>=1.16.0",
     "stable-baselines3>=2.6.0",
     "tensorboard>=2.19.0",
+    "tensorflow>=2.19.0",
     "tree>=0.2.4",
 ]
